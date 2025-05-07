@@ -10,6 +10,9 @@ Final project for ECE 4301 at CPP.
 `// TODO put info here`
 
 ## Dependencies:
-- [ESPNowCam](https://github.com/hpsaturn/ESPNowCam) by hpsaturn
+- [ESPNowCam](https://github.com/hpsaturn/ESPNowCam) (hpsaturn)
+- [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen)  (Paul Stoffregen)
+- [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) (bodmer)
+- [JPEGDecoder](https://github.com/Bodmer/JPEGDecoder) (bodmer)
 
 ## Metrics and stuff
