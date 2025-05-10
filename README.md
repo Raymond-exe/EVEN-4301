@@ -1,8 +1,8 @@
 # EVEN-4301
-> Cyrus K, William M, and Raymond W
-> ECE 4301.01 - Cryptographic Algorithms on Reconfigurable Hardware
-> Dr. Mohamed Aly
-> California Polytechnic State University, Pomona
+> **Cyrus K, William M, and Raymond W**  
+> **ECE 4301.01** - Cryptographic Algorithms on Reconfigurable Hardware  
+> Dr. Mohamed Aly  
+> California Polytechnic State University, Pomona  
 
 Final project for ECE 4301 at CPP.
 
