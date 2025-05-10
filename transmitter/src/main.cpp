@@ -6,9 +6,10 @@
 #include "esp_log.h"
 #include "mbedtls/aes.h"
 
-#define QUALITY 10
+#define QUALITY 16
 #define IV_SIZE 16
 #define MAX_JPEG_SIZE 5000
+#define QUARTER_RES // enable for 1/4 resolution, 160x120
 
 CamAIThinker Camera;
 ESPNowCam radio;
@@ -96,8 +97,12 @@ void setup() {
 
   radio.init();
 
-  Camera.config.frame_size = FRAMESIZE_QVGA;
-  Camera.config.jpeg_quality = QUALITY;
+  #ifdef QUARTER_RES
+    Camera.config.frame_size = FRAMESIZE_QQVGA;
+  #else
+    Camera.config.frame_size = FRAMESIZE_QVGA;
+  #endif
+  // Camera.config.jpeg_quality = QUALITY;
   Camera.config.fb_count = 1;
 
   if (!Camera.begin()) {
