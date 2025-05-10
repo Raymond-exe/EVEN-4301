@@ -1,19 +1,19 @@
 #include <Arduino.h>
 #include <ESPNowCam.h>
 #include <drivers/CamAIThinker.h>
-#include <Crypto.h>
-#include <AES.h>
-#include <CTR.h>
+
+#include "esp_system.h"
+#include "esp_log.h"
+#include "mbedtls/aes.h"
 
 #define QUALITY 10
 #define IV_SIZE 16
+#define MAX_JPEG_SIZE 5000
 
 CamAIThinker Camera;
 ESPNowCam radio;
 
-CTR<AES128> ctr;
-
-// Static 128-bit key (shared with receiver)
+// 128-bit AES key
 const uint8_t key[16] = {
   0xDE, 0xAD, 0xBE, 0xEF,
   0x01, 0x02, 0x03, 0x04,
@@ -21,31 +21,52 @@ const uint8_t key[16] = {
   0x55, 0x66, 0x77, 0x88
 };
 
+static uint8_t payload[MAX_JPEG_SIZE + IV_SIZE];
+
 void generateIV(uint8_t *iv) {
   for (int i = 0; i < IV_SIZE; i++) {
     iv[i] = esp_random() & 0xFF;
   }
 }
 
-void encryptAndSendJPEG(uint8_t* data, size_t len) {
-  uint8_t iv[IV_SIZE];
-  generateIV(iv);
+bool encryptAES_CTR(const uint8_t *input, uint8_t *output, size_t len, const uint8_t *key, const uint8_t *iv) {
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
 
-  ctr.setKey(key, sizeof(key));
-  ctr.setIV(iv, IV_SIZE);
-  ctr.encrypt(data, data, len);  // Encrypt in-place
+  int ret = mbedtls_aes_setkey_enc(&aes, key, 128);
+  if (ret != 0) {
+    mbedtls_aes_free(&aes);
+    return false;
+  }
 
-  // Allocate buffer for IV + encrypted JPEG
-  size_t total_len = IV_SIZE + len;
-  uint8_t *payload = (uint8_t*) malloc(total_len);
-  if (!payload) return;
+  // Internal state
+  uint8_t stream_block[16];
+  size_t nc_off = 0;
+  uint8_t iv_copy[16];
+  memcpy(iv_copy, iv, 16);
 
-  memcpy(payload, iv, IV_SIZE);
-  memcpy(payload + IV_SIZE, data, len);
+  ret = mbedtls_aes_crypt_ctr(&aes, len, &nc_off, iv_copy, stream_block, input, output);
+  mbedtls_aes_free(&aes);
 
-  radio.sendData(payload, total_len);
+  return (ret == 0);
+}
 
-  free(payload);
+void encryptAndSendJPEG(const uint8_t* data, size_t len) {
+  if (len > MAX_JPEG_SIZE) {
+    Serial.println("[ERROR] JPEG too large");
+    return;
+  }
+
+  // Generate IV and place in payload
+  generateIV(payload);
+
+  // Encrypt JPEG directly into payload after IV
+  if (!encryptAES_CTR(data, payload + IV_SIZE, len, key, payload)) {
+    Serial.println("[ERROR] AES encryption failed");
+    return;
+  }
+
+  radio.sendData(payload, len + IV_SIZE);
 }
 
 void processFrame() {
@@ -54,48 +75,34 @@ void processFrame() {
     size_t out_jpg_len = 0;
 
     frame2jpg(Camera.fb, QUALITY, &out_jpg, &out_jpg_len);
-    Serial.print("JPG length: ");
-    Serial.println(out_jpg_len);
-
-    encryptAndSendJPEG(out_jpg, out_jpg_len);
+    if (out_jpg && out_jpg_len > 0) {
+      encryptAndSendJPEG(out_jpg, out_jpg_len);
+    }
 
     free(out_jpg);
     Camera.free();
   } else {
     Serial.println("[ERROR] Failed to capture image from camera.");
-    if (Camera.fb == nullptr) {
-      Serial.println("  - Frame buffer is null.");
-    } else {
-      Serial.printf("  - Frame buffer size: %d x %d\n", Camera.fb->width, Camera.fb->height);
-    }
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  Serial.setDebugOutput(true);
   Serial.println("\n[INFO] Starting ESP32Cam Transmitter...");
 
-  delay(1000);
-
-  if (psramFound()) {
-    size_t psram_size = esp_spiram_get_size() / 1048576;
-    Serial.printf("[INFO] PSRAM size: %dMB\n", psram_size);
-  } else {
-    Serial.println("[WARNING] PSRAM not found. Camera may fail due to insufficient memory.");
+  if (!psramFound()) {
+    Serial.println("[WARNING] PSRAM not found. May affect JPEG size limits.");
   }
 
   radio.init();
 
   Camera.config.frame_size = FRAMESIZE_QVGA;
-  // Camera.config.jpeg_quality = 10;
+  Camera.config.jpeg_quality = QUALITY;
   Camera.config.fb_count = 1;
 
   if (!Camera.begin()) {
     Serial.println("[ERROR] Camera initialization failed.");
     while (true) delay(1000);
-  } else {
-    Serial.println("[INFO] Camera initialization successful.");
   }
 
   delay(500);
