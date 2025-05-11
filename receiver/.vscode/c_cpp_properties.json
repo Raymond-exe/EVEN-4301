@@ -10,7 +10,6 @@
             "includePath": [
                 "/Users/rwong/Documents/Projects/EVEN-4301/receiver/include",
                 "/Users/rwong/Documents/Projects/EVEN-4301/receiver",
-                "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/Crypto",
                 "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/XPT2046_Touchscreen",
                 "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/JPEGDecoder/src",
                 "/Users/rwong/.platformio/packages/framework-arduinoespressif32/libraries/SD/src",
@@ -252,7 +251,6 @@
                 "path": [
                     "/Users/rwong/Documents/Projects/EVEN-4301/receiver/include",
                     "/Users/rwong/Documents/Projects/EVEN-4301/receiver",
-                    "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/Crypto",
                     "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/XPT2046_Touchscreen",
                     "/Users/rwong/Documents/Projects/EVEN-4301/receiver/.pio/libdeps/cyd/JPEGDecoder/src",
                     "/Users/rwong/.platformio/packages/framework-arduinoespressif32/libraries/SD/src",
