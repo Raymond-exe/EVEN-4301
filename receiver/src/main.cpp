@@ -4,14 +4,12 @@
 #include <XPT2046_Touchscreen.h>
 #include <TFT_eSPI.h>
 #include <JPEGDecoder.h>
-#include <Crypto.h>
-#include <AES.h>
-#include <CTR.h>
+
+#include "mbedtls/aes.h"
 
 #define IV_SIZE 16
 
-CTR<AES128> ctr;
-
+// Static 128-bit key
 const uint8_t key[16] = {
   0xDE, 0xAD, 0xBE, 0xEF,
   0x01, 0x02, 0x03, 0x04,
@@ -35,6 +33,26 @@ SPIClass display = SPIClass(VSPI);
 XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
 TFT_eSPI tft = TFT_eSPI();
 ESPNowCam radio;
+
+bool decryptAES_CTR(const uint8_t *input, uint8_t *output, size_t len, const uint8_t *key, const uint8_t *iv) {
+  mbedtls_aes_context aes;
+  mbedtls_aes_init(&aes);
+
+  int ret = mbedtls_aes_setkey_enc(&aes, key, 128);
+  if (ret != 0) {
+    mbedtls_aes_free(&aes);
+    return false;
+  }
+
+  uint8_t stream_block[16];
+  size_t nc_off = 0;
+  uint8_t iv_copy[16];
+  memcpy(iv_copy, iv, 16);
+
+  ret = mbedtls_aes_crypt_ctr(&aes, len, &nc_off, iv_copy, stream_block, input, output);
+  mbedtls_aes_free(&aes);
+  return (ret == 0);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -62,7 +80,7 @@ void setup() {
 
   if (radio.init()) {
     tft.setTextSize(2);
-    tft.drawString("Init success", width / 6, height / 2);
+    tft.drawString("Init success", width / 4, height / 2);
     Serial.println("ESPNow Init success");
   }
 
@@ -86,9 +104,11 @@ void onDataReady(uint32_t length) {
   uint8_t* encrypted_data = frame_buffer + IV_SIZE;
   size_t encrypted_len = length - IV_SIZE;
 
-  ctr.setKey(key, sizeof(key));
-  ctr.setIV(iv, IV_SIZE);
-  ctr.decrypt(encrypted_data, encrypted_data, encrypted_len);
+  // Decrypt into-place
+  if (!decryptAES_CTR(encrypted_data, encrypted_data, encrypted_len, key, iv)) {
+    Serial.println("[ERROR] AES decryption failed.");
+    return;
+  }
 
   if (!JpegDec.decodeArray(encrypted_data, encrypted_len)) {
     Serial.println("[ERROR] JPEG decode failed.");
@@ -99,80 +119,53 @@ void onDataReady(uint32_t length) {
 }
 
 void renderJPEG(int xpos, int ypos) {
-  // retrieve infomration about the image
   uint16_t *pImg;
   uint16_t mcu_w = JpegDec.MCUWidth;
   uint16_t mcu_h = JpegDec.MCUHeight;
   uint32_t max_x = JpegDec.width;
   uint32_t max_y = JpegDec.height;
 
-  // Jpeg images are draw as a set of image block (tiles) called Minimum Coding Units (MCUs)
-  // Typically these MCUs are 16x16 pixel blocks
-  // Determine the width and height of the right and bottom edge image blocks
   uint32_t min_w = mcu_w < max_x % mcu_w ? mcu_w : max_x % mcu_w;
   uint32_t min_h = mcu_h < max_y % mcu_h ? mcu_h : max_y % mcu_h;
 
-  // save the current image block size
   uint32_t win_w = mcu_w;
   uint32_t win_h = mcu_h;
 
-  // record the current time so we can measure how long it takes to draw an image
-  uint32_t drawTime = millis();
+  uint16_t *lineBuf = (uint16_t*)malloc(mcu_w * mcu_h * sizeof(uint16_t));
 
-  // save the coordinate of the right and bottom edges to assist image cropping
-  // to the screen size
+  uint32_t drawTime = millis();
   max_x += xpos;
   max_y += ypos;
 
-  // read each MCU block until there are no more
-  while ( JpegDec.read()) {
-
-    // save a pointer to the image block
+  while (JpegDec.read()) {
     pImg = JpegDec.pImage;
 
-    // calculate where the image block should be drawn on the screen
     int mcu_x = JpegDec.MCUx * mcu_w + xpos;
     int mcu_y = JpegDec.MCUy * mcu_h + ypos;
 
-    // check if the image block size needs to be changed for the right and bottom edges
     if (mcu_x + mcu_w <= max_x) win_w = mcu_w;
     else win_w = min_w;
     if (mcu_y + mcu_h <= max_y) win_h = mcu_h;
     else win_h = min_h;
 
-    // calculate how many pixels must be drawn
-    uint32_t mcu_pixels = win_w * win_h;
-
-    // draw image block if it will fit on the screen
-    if ( (mcu_x + win_w) <= width && (mcu_y + win_h) <= height) {
-      // open a window onto the screen to paint the pixels into
-      //tft.setAddrWindow(mcu_x, mcu_y, mcu_x + win_w - 1, mcu_y + win_h - 1);
-      for (uint16_t row = 0; row < win_h; row++) {
-        for (uint16_t col = 0; col < win_w; col++) {
-          // Read pixel in row-major order
-          uint16_t color = pImg[row * win_w + col];
-
-          // Calculate rotated coordinates (90° counter-clockwise)
-          uint16_t x_rot = mcu_y + row;
-          uint16_t y_rot = width - 1 - (mcu_x + col); // width used because it was landscape
-
-          if (x_rot < height && y_rot < width) {
-            tft.drawPixel(y_rot, x_rot, color);
-          }
-        }
+    if ((mcu_x + win_w) <= tft.width() && (mcu_y + win_h) <= tft.height()) {
+      // Byte swap RGB565 values if needed
+      for (uint32_t i = 0; i < win_w * win_h; i++) {
+        uint16_t color = pImg[i];
+        lineBuf[i] = (color << 8) | (color >> 8);  // Swap bytes
       }
+
+      tft.pushImage(mcu_x, mcu_y, win_w, win_h, lineBuf);
+    } else if ((mcu_y + win_h) >= tft.height()) {
+      JpegDec.abort();
     }
-
-    // stop drawing blocks if the bottom of the screen has been reached
-    // the abort function will close the file
-    else if ( ( mcu_y + win_h) >= height) JpegDec.abort();
-
   }
 
-  // calculate how long it took to draw the image
-  drawTime = millis() - drawTime; // Calculate the time it took
+  free(lineBuf);
 
-  // print the results to the serial port
-  Serial.print("Total render time was    : "); Serial.print(drawTime); Serial.println(" ms");
+  drawTime = millis() - drawTime;
+  Serial.print("Total render time was    : ");
+  Serial.print(drawTime);
+  Serial.println(" ms");
   Serial.println("=====================================");
 }
