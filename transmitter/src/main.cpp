@@ -113,6 +113,12 @@ void setup() {
   delay(500);
 }
 
+uint32_t captureTime;
+
 void loop() {
+  captureTime = millis();
   processFrame();
+  captureTime = millis() - captureTime;
+  Serial.print("Capture time: ");
+  Serial.println(captureTime);
 }
