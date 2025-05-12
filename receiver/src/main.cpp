@@ -90,7 +90,8 @@ void setup() {
 }
 
 void loop() {
-  // idle
+  delay(10000);
+  tft.drawRect(0, 0, tft_w, tft_h, TFT_YELLOW);
 }
 
 bool decoded = false;
@@ -116,19 +117,19 @@ void onDataReady(uint32_t length) {
   if (JpegDec.decodeArray(encrypted_data, encrypted_len)) {
     if (!decoded) {
       tft.fillScreen(TFT_BLACK);
-      decoded = true;
     }
     int x = (tft_w - JpegDec.width) / 2;
     int y = (tft_h - JpegDec.height) / 2;
     renderJPEG(x > 0 ? x : -x, y > 0 ? y : -y);
-  } else {
+    decoded = true;
+  } else { // failed to decode, display raw bytes
     if (decoded) {
       tft.fillScreen(TFT_BLACK);
-      decoded = false;
     }
     tft.fillRect(80, 60, tft_w - 160, tft_h - 120, TFT_BLACK);
     renderRawData(80, 60, tft_w - 160, tft_h - 120, STATIC_SIZE, encrypted_data, encrypted_len);
     Serial.println("[ERROR] JPEG decode failed.");
+    decoded = false;
   }
 
   tft.drawRect(0, 0, tft_w, tft_h, decoded ? TFT_GREEN : TFT_RED);
