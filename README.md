@@ -11,7 +11,6 @@ Final project for ECE 4301 at CPP.
 
 ## Dependencies:
 - [ESPNowCam](https://github.com/hpsaturn/ESPNowCam) *(hpsaturn)*
-- [Arduino Cryptography Library](https://github.com/rweather/arduinolibs) *(rweather)*
 - [XPT2046_Touchscreen](https://github.com/PaulStoffregen/XPT2046_Touchscreen)  *(Paul Stoffregen)*
 - [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI) *(bodmer)*
 - [JPEGDecoder](https://github.com/Bodmer/JPEGDecoder) *(bodmer)*
