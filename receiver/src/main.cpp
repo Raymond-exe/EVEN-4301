@@ -8,6 +8,7 @@
 #include "mbedtls/aes.h"
 
 #define IV_SIZE 16
+#define STATIC_SIZE 3
 
 // Static 128-bit key
 const uint8_t key[16] = {
@@ -24,10 +25,11 @@ const uint8_t key[16] = {
 #define XPT2046_CS 33
 
 void onDataReady(uint32_t length);
-void renderJPEG(int, int);
+void renderJPEG(uint8_t, uint8_t);
+void renderRawData(uint8_t, uint8_t, uint8_t, uint8_t, uint8_t, uint8_t*, size_t);
 
 uint8_t *frame_buffer;
-int32_t width, height;
+int32_t tft_w, tft_h;
 
 SPIClass display = SPIClass(VSPI);
 XPT2046_Touchscreen ts(XPT2046_CS, XPT2046_IRQ);
@@ -66,8 +68,8 @@ void setup() {
   tft.startWrite();
   tft.fillScreen(TFT_BLACK);
 
-  width = tft.width();
-  height = tft.height();
+  tft_w = tft.width();
+  tft_h = tft.height();
 
   if (psramFound()) {
     size_t psram_size = esp_spiram_get_size() / 1048576;
@@ -80,7 +82,7 @@ void setup() {
 
   if (radio.init()) {
     tft.setTextSize(2);
-    tft.drawString("Init success", width / 4, height / 2);
+    tft.drawString("Init success", tft_w / 4, tft_h / 2);
     Serial.println("ESPNow Init success");
   }
 
@@ -91,6 +93,7 @@ void loop() {
   // idle
 }
 
+bool decoded = false;
 void onDataReady(uint32_t length) {
   Serial.print("Data received: ");
   Serial.println(length);
@@ -110,15 +113,28 @@ void onDataReady(uint32_t length) {
     return;
   }
 
-  if (!JpegDec.decodeArray(encrypted_data, encrypted_len)) {
+  if (JpegDec.decodeArray(encrypted_data, encrypted_len)) {
+    if (!decoded) {
+      tft.fillScreen(TFT_BLACK);
+      decoded = true;
+    }
+    int x = (tft_w - JpegDec.width) / 2;
+    int y = (tft_h - JpegDec.height) / 2;
+    renderJPEG(x > 0 ? x : -x, y > 0 ? y : -y);
+  } else {
+    if (decoded) {
+      tft.fillScreen(TFT_BLACK);
+      decoded = false;
+    }
+    tft.fillRect(80, 60, tft_w - 160, tft_h - 120, TFT_BLACK);
+    renderRawData(80, 60, tft_w - 160, tft_h - 120, STATIC_SIZE, encrypted_data, encrypted_len);
     Serial.println("[ERROR] JPEG decode failed.");
-    return;
   }
 
-  renderJPEG(0, 0);
+  tft.drawRect(0, 0, tft_w, tft_h, decoded ? TFT_GREEN : TFT_RED);
 }
 
-void renderJPEG(int xpos, int ypos) {
+void renderJPEG(uint8_t xpos, uint8_t ypos) {
   uint16_t *pImg;
   uint16_t mcu_w = JpegDec.MCUWidth;
   uint16_t mcu_h = JpegDec.MCUHeight;
@@ -164,8 +180,37 @@ void renderJPEG(int xpos, int ypos) {
   free(lineBuf);
 
   drawTime = millis() - drawTime;
-  Serial.print("Total render time was    : ");
+  Serial.print("Render time: ");
   Serial.print(drawTime);
   Serial.println(" ms");
-  Serial.println("=====================================");
+}
+
+void renderRawData(uint8_t x, uint8_t y, uint8_t w, uint8_t h, uint8_t scale, uint8_t *data, size_t len) {
+  uint16_t color;
+  size_t i = 0;
+
+  // Iterate through each byte of the data
+  for (size_t y1 = y; y1 + scale < y + h; y1 += scale) {
+    for (size_t x1 = x; x1 + scale < x + w; x1 += scale) {
+      if (i >= len) return; // Prevent accessing out-of-bounds memory
+
+      uint8_t pixel = data[i++];
+
+      // Extract RGB components from the 3-3-2 bit pattern
+      uint8_t r = (pixel >> 5) & 0x07; // Bits 5-7
+      uint8_t g = (pixel >> 2) & 0x07; // Bits 2-4
+      uint8_t b = pixel & 0x03;        // Bits 0-1
+
+      // Scale each component to 8-bit range (0–255)
+      r = r * 255 / 7; // Scale 3-bit to 8-bit
+      g = g * 255 / 7; // Scale 3-bit to 8-bit
+      b = b * 255 / 3; // Scale 2-bit to 8-bit
+
+      // Combine RGB components into a 16-bit color
+      color = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+
+      // Set the pixel color on the TFT display
+      tft.fillRect(x1, y1, scale, scale, color);
+    }
+  }
 }
